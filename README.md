@@ -207,9 +207,93 @@ todo-logstash
 Отлично, мы создали индекс.
 
 Идем слева в меню в Discover (верхний пункт в меню слева), в этом пункте слева в окошке выбираем созданный индекс.
-
 Отправляем запрос любым удобным способом (браузер, Postman, консоль) и нажимаем на кнопку Refresh.
 
 Мы увидим все наши запросы. Они будут попадать сюда посредством логера, который мы указали в классах в коде.
 
 Ничего сложного!
+
+
+
+https://www.youtube.com/watch?v=5s9pR9UUtAU
+
+
+user avatar
+Данил Белоусов
+09.05.2023 02:17
+Упростим код, написав все эти файлы и конфиги прямо в spring boot приложении.
+Добавить зависимости в файл pom.xml проекта:
+<dependency>
+    <groupId>org.apache.logging.log4j</groupId>
+    <artifactId>log4j-to-slf4j</artifactId>
+    <version>2.15.0</version>
+    <scope>runtime</scope>
+    <exclusions>
+        <exclusion>
+            <groupId>org.slf4j</groupId>
+            <artifactId>log4j-slf4j-impl</artifactId>
+        </exclusion>
+    </exclusions>
+</dependency>
+
+<dependency>
+    <groupId>net.logstash.logback</groupId>
+    <artifactId>logstash-logback-encoder</artifactId>
+    <version>6.6</version>
+</dependency>
+
+Настроить Logstash для получения логов из Spring Boot приложения. Например, можно создать конфигурационный файл logstash.conf следующего содержания:
+javascriptCopy codeinput {
+  tcp {
+    port => 5000
+    codec => json_lines
+  }
+}
+
+output {
+  elasticsearch {
+    hosts => ["localhost:9200"]
+    index => "spring-boot-logs"
+  }
+}
+
+Этот же файл с таким же названием ( logstash.conf) кладем в разархивированную папку Logstash.
+Данный файл настраивает Logstash на прослушивание TCP порта 5000 и ожидание JSON-логов. Полученные логи будут отправлены в Elasticsearch в индекс с именем spring-boot-logs.
+В Spring Boot приложении настроить логирование. Например, можно добавить в файл application.properties следующие настройки:
+cCopy codelogging.level.root=INFO
+logging.level.com.example=DEBUG
+logging.file.name=myapp.log
+Эти настройки задают уровень логирования для корневого пакета приложения (INFO) и для пакета com.example (DEBUG), а также задают имя файла для логов myapp.log.
+Настроить Logback, чтобы он использовал Logstash для отправки логов. Для этого нужно создать файл logback-spring.xml со следующим содержанием:
+phpCopy code<configuration>
+  <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
+    <destination>localhost:5000</destination>
+    <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+      <providers>
+        <pattern>
+          <pattern>
+            {
+              "timestamp": "%d{ISO8601}",
+              "level": "%level",
+              "logger": "%logger",
+              "message": "%message"
+            }
+          </pattern>
+        </pattern>
+      </providers>
+    </encoder>
+  </appender>
+  <root level="INFO">
+    <appender-ref ref="LOGSTASH" />
+  </root>
+</configuration>
+
+Этот файл настраивает Logback на отправку логов в Logstash по TCP на localhost:5000. Формат логов задается JSON-шаблоном.
+Можно добавить обычный лог прямо в главный класс logger.info("Hello, world!");
+Запустить Logstash командой bin\logstash -f ВАШ_ПУТЬ\logstash.conf внеся абсолютный путь до файла, который внутри папки logstash
+
+Запустить Elasticsearch.
+Запустить Spring Boot приложение.
+Открыть Kibana и создать индекс spring-boot-logs.
+Просмотреть логи в Kibana.
+ВАЖНО. я использовал всю эту троицу под версией 7.13.4 т.к в новых версиях по умолчанию включена аутентификация и SSL соединение, которое долго настраивать или отключать
